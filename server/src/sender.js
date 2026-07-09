@@ -2,13 +2,30 @@
  * sender.js — Multi-provider email sending layer
  *
  * Supports Microsoft 365, Google Workspace (Gmail), and Turbify/Yahoo Business.
- * Accounts are configured via numbered env vars (SMTP_1_*, SMTP_2_*, ...) and
- * rotated round-robin across sends. Legacy single-account env vars still work.
+ * Accounts are loaded from (in priority order):
+ *   1. server/data/smtp-accounts.json  — unlimited accounts, preferred for scale
+ *   2. Numbered env vars SMTP_1_* … SMTP_20_*  — simple multi-account setup
+ *   3. Legacy SMTP_HOST / SMTP_USER / SMTP_PASS  — single-account fallback
+ *
+ * smtp-accounts.json format:
+ *   [
+ *     { "provider": "microsoft", "user": "x@domain.com", "pass": "app-pw", "fromName": "Name" },
+ *     { "provider": "gmail",     "user": "y@domain.com", "pass": "app-pw", "fromName": "Name" },
+ *     { "provider": "turbify",   "user": "z@domain.com", "pass": "app-pw" }
+ *   ]
+ * Add as many objects as needed — no limit. Omit host/port/secure to use provider preset.
  *
  * To activate real sending:
  *   cd server && npm install nodemailer
  *   Then uncomment the nodemailer block in sendEmail() below.
  */
+
+import { readFileSync, existsSync } from "fs"
+import { fileURLToPath } from "url"
+import { dirname, join } from "path"
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const SMTP_ACCOUNTS_FILE = join(__dirname, "../../data/smtp-accounts.json")
 
 // ---------------------------------------------------------------------------
 // Open/click tracking helpers
@@ -92,8 +109,36 @@ const PROVIDER_PRESETS = {
  * @returns {Array<{index, provider, host, port, secure, user, pass, fromName}>}
  */
 export function loadSmtpAccounts() {
+  // ── Priority 1: JSON file (unlimited accounts) ──────────────────────────────
+  if (existsSync(SMTP_ACCOUNTS_FILE)) {
+    try {
+      const raw = JSON.parse(readFileSync(SMTP_ACCOUNTS_FILE, "utf8"))
+      if (Array.isArray(raw) && raw.length > 0) {
+        return raw
+          .filter(a => a.user && a.pass)
+          .map((a, i) => {
+            const provider = (a.provider || "").toLowerCase()
+            const preset   = PROVIDER_PRESETS[provider] || {}
+            return {
+              index:    i,
+              provider: provider || "custom",
+              host:     a.host     || preset.host    || "smtp.office365.com",
+              port:     Number(a.port || preset.port || 587),
+              secure:   a.secure   ?? preset.secure  ?? false,
+              user:     a.user,
+              pass:     a.pass,
+              fromName: a.fromName || "",
+            }
+          })
+      }
+    } catch (err) {
+      console.error(`[sender] Failed to parse ${SMTP_ACCOUNTS_FILE}: ${err.message}`)
+    }
+  }
+
   const accounts = []
 
+  // ── Priority 2: Numbered env vars SMTP_1_* … SMTP_20_* ─────────────────────
   for (let i = 1; i <= 20; i++) {
     const user = process.env[`SMTP_${i}_USER`]
     const pass = process.env[`SMTP_${i}_PASS`]
@@ -103,7 +148,7 @@ export function loadSmtpAccounts() {
     const preset = PROVIDER_PRESETS[provider] || {}
 
     accounts.push({
-      index: i,
+      index:    i,
       provider: provider || "custom",
       host:     process.env[`SMTP_${i}_HOST`]      || preset.host    || "smtp.office365.com",
       port:     Number(process.env[`SMTP_${i}_PORT`] || preset.port  || 587),
@@ -113,12 +158,13 @@ export function loadSmtpAccounts() {
       fromName: process.env[`SMTP_${i}_FROM_NAME`] || process.env.SMTP_FROM_NAME || "",
     })
   }
+  if (accounts.length > 0) return accounts
 
-  // Legacy single-account fallback
-  if (accounts.length === 0 && process.env.SMTP_USER && process.env.SMTP_PASS) {
+  // ── Priority 3: Legacy single-account fallback ──────────────────────────────
+  if (process.env.SMTP_USER && process.env.SMTP_PASS) {
     const provider = (process.env.SMTP_PROVIDER || "").toLowerCase()
     const preset   = PROVIDER_PRESETS[provider] || {}
-    accounts.push({
+    return [{
       index:    0,
       provider: provider || "custom",
       host:     process.env.SMTP_HOST     || preset.host  || "smtp.office365.com",
@@ -127,7 +173,7 @@ export function loadSmtpAccounts() {
       user:     process.env.SMTP_USER,
       pass:     process.env.SMTP_PASS,
       fromName: process.env.SMTP_FROM_NAME || "",
-    })
+    }]
   }
 
   return accounts

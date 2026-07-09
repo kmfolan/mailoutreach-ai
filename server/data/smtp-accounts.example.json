@@ -1,0 +1,20 @@
+[
+  {
+    "provider": "microsoft",
+    "user": "outreach1@yourdomain.com",
+    "pass": "app-password-here",
+    "fromName": "Your Name"
+  },
+  {
+    "provider": "gmail",
+    "user": "outreach2@yourdomain.com",
+    "pass": "app-password-here",
+    "fromName": "Your Name"
+  },
+  {
+    "provider": "turbify",
+    "user": "outreach3@yourdomain.com",
+    "pass": "app-password-here",
+    "fromName": "Your Name"
+  }
+]

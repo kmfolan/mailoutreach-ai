@@ -249,9 +249,14 @@ Same shape as original (`server/data/db.json`), with these additions to report r
 
 ## Sender (`server/src/sender.js`)
 
-Multi-provider SMTP support with round-robin rotation across up to 20 accounts.
+Multi-provider SMTP support with round-robin rotation across unlimited accounts.
 
-- **`loadSmtpAccounts()`** — reads `SMTP_1_*` through `SMTP_20_*` env vars; setting `SMTP_n_PROVIDER=microsoft|gmail|yahoo|turbify` fills in host/port/secure from built-in presets. Falls back to legacy `SMTP_HOST/USER/PASS` if no numbered vars set.
+Account loading priority:
+1. **`server/data/smtp-accounts.json`** — preferred for production/scale; no account limit. Copy `smtp-accounts.example.json` → `smtp-accounts.json` and fill in credentials. Each entry: `{ provider, user, pass, fromName }`. Omit `host/port/secure` to use the provider preset.
+2. **Numbered env vars `SMTP_1_*` … `SMTP_20_*`** — simple multi-account setup (up to 20).
+3. **Legacy `SMTP_HOST/USER/PASS`** — single-account fallback.
+
+- **`loadSmtpAccounts()`** — checks JSON file first, then env vars, then legacy fallback. Setting `provider=microsoft|gmail|yahoo|turbify` in either source fills in host/port/secure from built-in presets.
 - **`getNextSmtpAccount()`** — returns next account in round-robin order
 - **`listSmtpAccounts()`** — returns all configured accounts (for health checks / dashboard)
 - **`sendEmail({to, subject, body, ...})`** — SMTP stub today; picks next account via round-robin, logs to console. Returns `{sent, provider, smtpUser, ...}`. Activate by installing nodemailer and uncommenting the block marked `── Activate real sending ──`.
