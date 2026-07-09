@@ -98,9 +98,12 @@ Server listens on `http://localhost:4021` by default (port 4021 to avoid conflic
 | `GOOGLE_MAPS_API_KEY` | Places Text Search API for discovery | Yes for autonomous runs |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | DataForSEO API for SEO audit (Agent 1.5) | No (falls back gracefully) |
 | `SNOV_CLIENT_ID` / `SNOV_CLIENT_SECRET` | Snov.io contact enrichment | No (falls back to patterns) |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | SMTP sending credentials | Yes for email sending |
-| `SMTP_PORT`, `SMTP_SECURE` | SMTP port and TLS flag | No |
-| `SMTP_FROM_NAME` | Sender display name | No |
+| `SMTP_n_PROVIDER` | Provider preset for account n: `microsoft`, `gmail`, `yahoo`, `turbify` | No (fills host/port/secure) |
+| `SMTP_n_USER` / `SMTP_n_PASS` | Credentials for sending account n (n = 1–20) | Yes for email sending |
+| `SMTP_n_FROM_NAME` | Display name for account n | No |
+| `SMTP_n_HOST` / `SMTP_n_PORT` / `SMTP_n_SECURE` | Override preset for account n | No |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | Legacy single-account fallback (used if no SMTP_n_* vars set) | No |
+| `SMTP_FROM_NAME` | Default sender display name (legacy) | No |
 | `TRACKING_HOST` | Public hostname for tracking pixel/redirect URLs | Yes for tracking |
 | `NODE_ENV` | Set to `production` behind HTTPS | No |
 | `COOKIE_SECURE` | Set to `true` only when served over HTTPS | No |
@@ -246,16 +249,28 @@ Same shape as original (`server/data/db.json`), with these additions to report r
 
 ## Sender (`server/src/sender.js`)
 
-- **`sendEmail({to, subject, body, ...})`** — SMTP stub today; logs to console and returns `{sent: false, queued: true}` until nodemailer is installed. The file contains detailed TODO comments showing exact wiring.
-- **`scheduleSequence(reportId, sequence, sendConfig)`** — uses `setTimeout` to schedule up to 3 steps (delays configurable via `delayDays`)
+Multi-provider SMTP support with round-robin rotation across up to 20 accounts.
+
+- **`loadSmtpAccounts()`** — reads `SMTP_1_*` through `SMTP_20_*` env vars; setting `SMTP_n_PROVIDER=microsoft|gmail|yahoo|turbify` fills in host/port/secure from built-in presets. Falls back to legacy `SMTP_HOST/USER/PASS` if no numbered vars set.
+- **`getNextSmtpAccount()`** — returns next account in round-robin order
+- **`listSmtpAccounts()`** — returns all configured accounts (for health checks / dashboard)
+- **`sendEmail({to, subject, body, ...})`** — SMTP stub today; picks next account via round-robin, logs to console. Returns `{sent, provider, smtpUser, ...}`. Activate by installing nodemailer and uncommenting the block marked `── Activate real sending ──`.
+- **`scheduleSequence(reportId, sequence, sendConfig)`** — schedules up to 3 steps via `setTimeout`; each step pre-assigned an SMTP account at schedule time so rotation is deterministic
 - **`cancelScheduledSequence(reportId)`** — clears all pending timers for a report
 - **`buildOpenTrackingPixel(trackingId)`** / **`buildTrackedLink(url, trackingId)`** — uses `TRACKING_HOST` env var
+
+Provider presets (host/port/secure filled automatically):
+| Provider | Host | Port | Secure |
+|---|---|---|---|
+| `microsoft` | smtp.office365.com | 587 | false |
+| `gmail` | smtp.gmail.com | 587 | false |
+| `yahoo` / `turbify` | smtp.bizmail.yahoo.com | 465 | true |
 
 To enable real sending:
 ```bash
 cd server && npm install nodemailer
 ```
-Then replace the stub block in `sender.js` (marked with `TODO: implement sending`).
+Then uncomment the nodemailer block in `sender.js` (marked `── Activate real sending ──`).
 
 ---
 
@@ -302,7 +317,7 @@ Identical to original:
 | Discovery | Bing RSS | Google Maps → Bing RSS fallback |
 | Contact info | None | Snov.io enrichment |
 | Email copy | Template | Claude Sonnet (GPT-4o mini research first) |
-| Sending | Not implemented | SMTP stub (nodemailer TODO) |
+| Sending | Not implemented | Multi-provider SMTP stub (Microsoft 365 / Gmail / Turbify, round-robin, nodemailer TODO) |
 | Tracking | None | Open pixel + click redirect |
 | Reply handling | None | Classifier + drafter agents (call manually) |
 | Optimization | None | Weekly optimizer agent (call manually) |
