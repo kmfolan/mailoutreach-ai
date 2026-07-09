@@ -98,11 +98,12 @@ Server listens on `http://localhost:4021` by default (port 4021 to avoid conflic
 | `GOOGLE_MAPS_API_KEY` | Places Text Search API for discovery | Yes for autonomous runs |
 | `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | DataForSEO API for SEO audit (Agent 1.5) | No (falls back gracefully) |
 | `SNOV_CLIENT_ID` / `SNOV_CLIENT_SECRET` | Snov.io contact enrichment | No (falls back to patterns) |
-| `SMTP_n_PROVIDER` | Provider preset for account n: `microsoft`, `gmail`, `yahoo`, `turbify` | No (fills host/port/secure) |
-| `SMTP_n_USER` / `SMTP_n_PASS` | Credentials for sending account n (n = 1–20) | Yes for email sending |
-| `SMTP_n_FROM_NAME` | Display name for account n | No |
-| `SMTP_n_HOST` / `SMTP_n_PORT` / `SMTP_n_SECURE` | Override preset for account n | No |
-| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | Legacy single-account fallback (used if no SMTP_n_* vars set) | No |
+| `smtp-accounts.json` | **Preferred for scale** — `server/data/smtp-accounts.json`; unlimited accounts; JSON array of `{provider,user,pass,fromName}`; takes priority over all env vars below | No (but use this for production) |
+| `SMTP_n_PROVIDER` | Simple setup only (n = 1–20 fallback): provider preset `microsoft\|gmail\|yahoo\|turbify` | No |
+| `SMTP_n_USER` / `SMTP_n_PASS` | Simple setup only: credentials for account n (n = 1–20) | No |
+| `SMTP_n_FROM_NAME` | Simple setup only: display name for account n | No |
+| `SMTP_n_HOST` / `SMTP_n_PORT` / `SMTP_n_SECURE` | Simple setup only: override preset for account n | No |
+| `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | Legacy single-account last-resort fallback | No |
 | `SMTP_FROM_NAME` | Default sender display name (legacy) | No |
 | `TRACKING_HOST` | Public hostname for tracking pixel/redirect URLs | Yes for tracking |
 | `NODE_ENV` | Set to `production` behind HTTPS | No |
