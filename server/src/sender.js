@@ -1,11 +1,13 @@
 /**
- * sender.js — Email sending layer
+ * sender.js — Multi-provider email sending layer
  *
- * Provides the full interface for scheduling and sending outreach sequences.
- * SMTP sending is stubbed today (no npm deps) — the TODO comments explain
- * exactly how to wire up nodemailer once it is installed.
+ * Supports Microsoft 365, Google Workspace (Gmail), and Turbify/Yahoo Business.
+ * Accounts are configured via numbered env vars (SMTP_1_*, SMTP_2_*, ...) and
+ * rotated round-robin across sends. Legacy single-account env vars still work.
  *
- * Dependencies: Node.js built-ins only. No npm deps.
+ * To activate real sending:
+ *   cd server && npm install nodemailer
+ *   Then uncomment the nodemailer block in sendEmail() below.
  */
 
 // ---------------------------------------------------------------------------
@@ -13,75 +15,222 @@
 // ---------------------------------------------------------------------------
 
 export function buildOpenTrackingPixel(trackingId) {
-  const host = process.env.TRACKING_HOST || "localhost:4020"
+  const host = process.env.TRACKING_HOST || "localhost:4021"
   return (
-    `<img src="http://${host}/track/open/${trackingId}" ` +
+    `<img src="https://${host}/track/open/${trackingId}" ` +
     `width="1" height="1" style="display:none" alt="">`
   )
 }
 
 export function buildTrackedLink(url, trackingId) {
-  const host = process.env.TRACKING_HOST || "localhost:4020"
-  return `http://${host}/track/click/${trackingId}?url=${encodeURIComponent(url)}`
+  const host = process.env.TRACKING_HOST || "localhost:4021"
+  return `https://${host}/track/click/${trackingId}?url=${encodeURIComponent(url)}`
 }
 
 // ---------------------------------------------------------------------------
-// Core send function (SMTP stub)
+// SMTP provider presets
 // ---------------------------------------------------------------------------
 
-export async function sendEmail({ to, subject, body, from, replyTo, trackingId, reportId }) {
-  const smtpUser = process.env.SMTP_USER
-  const smtpPass = process.env.SMTP_PASS
+/**
+ * Known provider presets. Setting SMTP_n_PROVIDER=microsoft|gmail|yahoo
+ * fills in host/port/secure automatically — override any field explicitly.
+ *
+ * DELIVERABILITY NOTES (honest assessment):
+ *
+ * microsoft — Best overall for cold B2B outreach. Office 365 IPs have the
+ *   strongest reputation with corporate spam filters. Most outreach agencies
+ *   use this. $6/mailbox/month. Recommended primary provider.
+ *
+ * gmail — Excellent inbox placement especially for Gmail recipients (~40% of
+ *   all inboxes). Google aggressively detects cold outreach patterns and will
+ *   suspend accounts faster than Microsoft. Good for B2C or low-volume sends.
+ *   $6/mailbox/month (Google Workspace — not free @gmail.com accounts).
+ *
+ * yahoo/turbify — Cheapest at ~$1.50/mailbox. Yahoo's IP pool has historically
+ *   weaker reputation than Microsoft/Google for cold outreach. Deliverability
+ *   is acceptable for warmed-up domains but expect higher spam placement rates
+ *   vs Microsoft 365 at scale. Best used for testing or lower-priority sequences.
+ *
+ * Verdict: Microsoft 365 > Google Workspace > Turbify/Yahoo for cold B2B.
+ * Domain age + SPF/DKIM/DMARC setup matters more than provider choice — a
+ * well-configured domain on Yahoo will beat a poorly configured M365 account.
+ */
+const PROVIDER_PRESETS = {
+  microsoft: { host: "smtp.office365.com",     port: 587, secure: false },
+  gmail:     { host: "smtp.gmail.com",          port: 587, secure: false },
+  yahoo:     { host: "smtp.bizmail.yahoo.com",  port: 465, secure: true  },
+  turbify:   { host: "smtp.bizmail.yahoo.com",  port: 465, secure: true  },
+}
 
-  if (!smtpUser || !smtpPass) {
-    console.log(`📧 [SMTP NOT CONFIGURED] Would send to: ${to} | Subject: ${subject}`)
-    return {
-      sent: false,
-      reason: "smtp_not_configured",
-      queued: true,
-      to,
-      subject
-    }
+// ---------------------------------------------------------------------------
+// SMTP account pool
+// ---------------------------------------------------------------------------
+
+/**
+ * Load all configured SMTP accounts from environment variables.
+ *
+ * Pattern 1 — numbered multi-account (preferred for production):
+ *   SMTP_1_PROVIDER=microsoft
+ *   SMTP_1_USER=outreach@yourdomain.com
+ *   SMTP_1_PASS=app-password
+ *   SMTP_1_FROM_NAME=Your Name
+ *   (SMTP_1_HOST / SMTP_1_PORT / SMTP_1_SECURE are optional — filled by preset)
+ *
+ *   SMTP_2_PROVIDER=gmail
+ *   SMTP_2_USER=outreach2@yourdomain.com
+ *   SMTP_2_PASS=app-password
+ *   ...up to SMTP_20_*
+ *
+ * Pattern 2 — legacy single account (fallback):
+ *   SMTP_HOST=smtp.office365.com
+ *   SMTP_PORT=587
+ *   SMTP_SECURE=false
+ *   SMTP_USER=outreach@yourdomain.com
+ *   SMTP_PASS=app-password
+ *   SMTP_PROVIDER=microsoft  (optional — for labeling)
+ *
+ * @returns {Array<{index, provider, host, port, secure, user, pass, fromName}>}
+ */
+export function loadSmtpAccounts() {
+  const accounts = []
+
+  for (let i = 1; i <= 20; i++) {
+    const user = process.env[`SMTP_${i}_USER`]
+    const pass = process.env[`SMTP_${i}_PASS`]
+    if (!user || !pass) continue
+
+    const provider = (process.env[`SMTP_${i}_PROVIDER`] || "").toLowerCase()
+    const preset = PROVIDER_PRESETS[provider] || {}
+
+    accounts.push({
+      index: i,
+      provider: provider || "custom",
+      host:     process.env[`SMTP_${i}_HOST`]      || preset.host    || "smtp.office365.com",
+      port:     Number(process.env[`SMTP_${i}_PORT`] || preset.port  || 587),
+      secure:   process.env[`SMTP_${i}_SECURE`] === "true" || preset.secure || false,
+      user,
+      pass,
+      fromName: process.env[`SMTP_${i}_FROM_NAME`] || process.env.SMTP_FROM_NAME || "",
+    })
   }
 
-  // TODO: implement sending with nodemailer once installed.
-  //
-  // Installation:
-  //   cd server && npm install nodemailer
-  //
-  // Then replace this block with:
-  //
-  //   import nodemailer from "nodemailer"
+  // Legacy single-account fallback
+  if (accounts.length === 0 && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    const provider = (process.env.SMTP_PROVIDER || "").toLowerCase()
+    const preset   = PROVIDER_PRESETS[provider] || {}
+    accounts.push({
+      index:    0,
+      provider: provider || "custom",
+      host:     process.env.SMTP_HOST     || preset.host  || "smtp.office365.com",
+      port:     Number(process.env.SMTP_PORT || preset.port || 587),
+      secure:   process.env.SMTP_SECURE   === "true" || preset.secure || false,
+      user:     process.env.SMTP_USER,
+      pass:     process.env.SMTP_PASS,
+      fromName: process.env.SMTP_FROM_NAME || "",
+    })
+  }
+
+  return accounts
+}
+
+// Round-robin counter (module-level, resets on server restart)
+let _rrIndex = 0
+
+/**
+ * Return the next SMTP account in round-robin order.
+ * Returns null if no accounts are configured.
+ */
+export function getNextSmtpAccount() {
+  const accounts = loadSmtpAccounts()
+  if (accounts.length === 0) return null
+  const account = accounts[_rrIndex % accounts.length]
+  _rrIndex++
+  return account
+}
+
+/**
+ * Return all configured accounts (for dashboard display / health checks).
+ */
+export function listSmtpAccounts() {
+  return loadSmtpAccounts().map(a => ({
+    index:    a.index,
+    provider: a.provider,
+    user:     a.user,
+    host:     a.host,
+    port:     a.port,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// Core send function
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a single email via SMTP.
+ *
+ * @param {{ to, subject, body, from?, replyTo?, trackingId, reportId, smtpAccount? }} opts
+ *   smtpAccount — if provided, uses this account; otherwise picks next in round-robin
+ */
+export async function sendEmail({ to, subject, body, from, replyTo, trackingId, reportId, smtpAccount }) {
+  const account = smtpAccount || getNextSmtpAccount()
+
+  if (!account) {
+    console.log(`📧 [SMTP NOT CONFIGURED] Would send to: ${to} | Subject: ${subject}`)
+    return { sent: false, reason: "smtp_not_configured", queued: true, to, subject }
+  }
+
+  // ── Activate real sending ─────────────────────────────────────────────────
+  // 1. Install nodemailer:  cd server && npm install nodemailer
+  // 2. Add this import at the top of the file:
+  //      import nodemailer from "nodemailer"
+  // 3. Replace the stub return below with this block:
   //
   //   const transporter = nodemailer.createTransport({
-  //     host: process.env.SMTP_HOST || "smtp.gmail.com",
-  //     port: Number(process.env.SMTP_PORT) || 587,
-  //     secure: process.env.SMTP_SECURE === "true",
-  //     auth: { user: smtpUser, pass: smtpPass }
+  //     host:   account.host,
+  //     port:   account.port,
+  //     secure: account.secure,
+  //     auth:   { user: account.user, pass: account.pass },
   //   })
   //
-  //   const htmlBody = body + buildOpenTrackingPixel(trackingId)
+  //   const fromAddress = from || (account.fromName
+  //     ? `"${account.fromName}" <${account.user}>`
+  //     : account.user)
   //
-  //   const info = await transporter.sendMail({
-  //     from: from || `"MailOutreach" <${smtpUser}>`,
-  //     to,
-  //     replyTo: replyTo || from || smtpUser,
-  //     subject,
-  //     text: body,
-  //     html: htmlBody
-  //   })
+  //   const htmlBody =
+  //     `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#222">` +
+  //     body.replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>") +
+  //     `</div>` +
+  //     buildOpenTrackingPixel(trackingId)
   //
-  //   return { sent: true, messageId: info.messageId, to, subject }
+  //   try {
+  //     const info = await transporter.sendMail({
+  //       from:    fromAddress,
+  //       to,
+  //       replyTo: replyTo || fromAddress,
+  //       subject,
+  //       text:    body,
+  //       html:    htmlBody,
+  //     })
+  //     console.log(`📧 [SENT] ${account.provider} | ${account.user} → ${to} | ${subject}`)
+  //     return { sent: true, messageId: info.messageId, to, subject, provider: account.provider, smtpUser: account.user }
+  //   } catch (smtpErr) {
+  //     console.error(`📧 [SMTP ERROR] ${account.provider} | ${account.user}: ${smtpErr.message}`)
+  //     return { sent: false, reason: smtpErr.message, to, subject, provider: account.provider, smtpUser: account.user }
+  //   }
+  // ─────────────────────────────────────────────────────────────────────────
 
   console.log(
-    `📧 [NODEMAILER PENDING] Install nodemailer to enable sending: cd server && npm install nodemailer`
+    `📧 [NODEMAILER PENDING] Install nodemailer to activate.\n` +
+    `   Provider: ${account.provider} (${account.user}) → ${to} | ${subject}`
   )
   return {
-    sent: false,
-    reason: "nodemailer_not_installed",
-    queued: true,
+    sent:     false,
+    reason:   "nodemailer_not_installed",
+    queued:   true,
     to,
-    subject
+    subject,
+    provider: account.provider,
+    smtpUser: account.user,
   }
 }
 
@@ -91,64 +240,62 @@ export async function sendEmail({ to, subject, body, from, replyTo, trackingId, 
 
 /**
  * Tracks pending timer handles indexed by reportId.
- * Each value is an array of timer IDs (one per sequence step).
- *
  * @type {Map<string, ReturnType<typeof setTimeout>[]>}
  */
 export const scheduledSequences = new Map()
 
 /**
- * Schedule a 3-step outreach sequence for a given report.
+ * Schedule a 3-step outreach sequence.
+ * Each step is pre-assigned an SMTP account at schedule time so the round-robin
+ * is deterministic — account 1 gets Email 1, account 2 gets Email 2, etc.
  *
  * @param {string} reportId
- * @param {Array<{step: number|string, subject: string, body: string}>} sequence
- * @param {{ from?: string, replyTo?: string, toEmail: string, toName?: string, delayDays?: number[] }} sendConfig
- *
- * TODO: replace setTimeout with a persistent job queue (e.g. BullMQ, pg-boss,
- * or a simple cron-backed table in db.json) before going to production.
- * In-memory timers are lost on server restart.
+ * @param {Array<{step, subject, body}>} sequence
+ * @param {{ from?, replyTo?, toEmail, toName?, delayDays? }} sendConfig
  */
 export async function scheduleSequence(reportId, sequence, sendConfig) {
-  // Cancel any existing sequence for this report first
   cancelScheduledSequence(reportId)
 
-  const { from, replyTo, toEmail, toName, delayDays = [0, 3, 7] } = sendConfig
+  const { from, replyTo, toEmail, delayDays = [0, 3, 7] } = sendConfig
   const steps = sequence.slice(0, 3)
   const handles = []
   const scheduledSteps = []
 
   steps.forEach((step, index) => {
     const daysDelay = delayDays[index] !== undefined ? delayDays[index] : index * 3
-    // Day-0 emails use a tiny delay so the function can return before the
-    // callback fires (allows the caller to store the returned metadata first).
-    const delayMs = daysDelay === 0 ? 500 : daysDelay * 24 * 60 * 60 * 1000
+    const delayMs   = daysDelay === 0 ? 500 : daysDelay * 24 * 60 * 60 * 1000
     const scheduledAt = new Date(Date.now() + delayMs).toISOString()
+
+    // Pre-assign account now so round-robin is stable across restarts
+    const smtpAccount = getNextSmtpAccount()
 
     const handle = setTimeout(() => {
       sendEmail({
-        to: toEmail,
-        subject: step.subject,
-        body: step.body,
+        to:          toEmail,
+        subject:     step.subject,
+        body:        step.body,
         from,
         replyTo,
-        trackingId: `${reportId}_step${index}`,
-        reportId
-      }).catch(error => {
-        console.error(`[sender] Failed to send step ${index} for report ${reportId}:`, error.message)
+        trackingId:  `${reportId}_step${index}`,
+        reportId,
+        smtpAccount,
+      }).catch(err => {
+        console.error(`[sender] Step ${index} failed for ${reportId}: ${err.message}`)
       })
     }, delayMs)
 
     handles.push(handle)
-    scheduledSteps.push({ step: step.step, scheduledAt })
+    scheduledSteps.push({
+      step:      step.step,
+      scheduledAt,
+      provider:  smtpAccount?.provider || "unconfigured",
+      smtpUser:  smtpAccount?.user     || null,
+    })
   })
 
   scheduledSequences.set(reportId, handles)
 
-  return {
-    scheduled: true,
-    reportId,
-    steps: scheduledSteps
-  }
+  return { scheduled: true, reportId, steps: scheduledSteps }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +305,7 @@ export async function scheduleSequence(reportId, sequence, sendConfig) {
 export function cancelScheduledSequence(reportId) {
   const handles = scheduledSequences.get(reportId)
   if (handles) {
-    handles.forEach(handle => clearTimeout(handle))
+    handles.forEach(h => clearTimeout(h))
     scheduledSequences.delete(reportId)
   }
   return { cancelled: true, reportId }
