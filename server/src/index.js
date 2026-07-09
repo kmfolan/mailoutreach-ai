@@ -337,13 +337,13 @@ function buildAuditPage(report) {
     <div class="cta-section">
       <h2>Want to fix this?</h2>
       <p>We help businesses like yours win more organic visibility and leads. No contracts, no fluff — just clear priorities and execution.</p>
-      <a href="mailto:${escHtml(process.env.SMTP_USER || "hello@atlasstudios.com")}" class="cta-btn">Book a Free Call</a>
+      <a href="mailto:${escHtml(process.env.AUDIT_REPLY_EMAIL || process.env.SMTP_USER || "hello@yourdomain.com")}" class="cta-btn">Book a Free Call</a>
     </div>
   </main>
 
   <footer class="footer">
     This report was generated automatically and is intended for the recipient only.
-    Data sourced from public search index. &copy; ${new Date().getFullYear()} Atlas Studios.
+    Data sourced from public search index. &copy; ${new Date().getFullYear()} ${escHtml(process.env.COMPANY_NAME || "MailOutreach AI")}.
   </footer>
 </body>
 </html>`;

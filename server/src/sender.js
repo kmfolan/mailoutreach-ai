@@ -25,7 +25,7 @@ import { fileURLToPath } from "url"
 import { dirname, join } from "path"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const SMTP_ACCOUNTS_FILE = join(__dirname, "../../data/smtp-accounts.json")
+const SMTP_ACCOUNTS_FILE = join(__dirname, "../data/smtp-accounts.json")
 
 // ---------------------------------------------------------------------------
 // Open/click tracking helpers
