@@ -1,9 +1,8 @@
-.git
-tools
-server/node_modules
-server.log
+.env
 server/data/db.json
 server/data/smtp-accounts.json
-.env
-*.zip
+server/node_modules
+node_modules
+*.log
+.DS_Store
 Thumbs.db

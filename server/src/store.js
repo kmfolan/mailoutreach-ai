@@ -12,6 +12,7 @@ import {
 } from "./discovery.js";
 import { researchProspect } from "./agents/research.js";
 import { writeEmailSequence } from "./agents/emailWriter.js";
+import { runSeoAudit } from "./agents/seoAudit.js";
 import { scheduleSequence } from "./sender.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,9 @@ const activeRuns = new Map();
 const openEvents = new Map();   // trackingId -> [{at}]
 const clickEvents = new Map();  // trackingId -> [{at, url}]
 const reportTrackingMap = new Map(); // reportId -> [{step, trackingId}]
+
+// In-memory audit page view tracking (resets on server restart)
+const auditViewEvents = new Map(); // auditPageId -> [{at}]
 
 function ensureDataFile() {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -417,6 +421,22 @@ async function buildReportRecordFromInput(input, metadata = {}) {
     console.warn(`[AI] Research agent failed for ${input.companyName}: ${error.message}`);
   }
 
+  // SEO audit pass — pull real DataForSEO metrics for this domain
+  const domain = extractDomain(input.websiteUrl) || input.websiteUrl;
+  const auditPageId = createId("audit");
+  const trackingHost = process.env.TRACKING_HOST || `localhost:${process.env.PORT || 4021}`;
+  const auditPageUrl = `https://${trackingHost}/audit/${auditPageId}`;
+
+  let seoAudit = null;
+  try {
+    const auditResult = await runSeoAudit(domain, input.companyName, input.auditMode, input.location);
+    if (!auditResult.fallback_used) {
+      seoAudit = auditResult;
+    }
+  } catch (error) {
+    console.warn(`[AI] SEO audit failed for ${input.companyName}: ${error.message}`);
+  }
+
   // AI email sequence — use Claude to write personalized emails
   const campaignBrief = {
     cta: input.cta,
@@ -424,7 +444,9 @@ async function buildReportRecordFromInput(input, metadata = {}) {
     painPoints: input.painPoints,
     reportRequirements: input.reportRequirements,
     location: input.location,
-    companyName: input.companyName
+    companyName: input.companyName,
+    auditPageUrl,
+    seoAudit
   };
 
   let outreachSequence;
@@ -460,6 +482,9 @@ async function buildReportRecordFromInput(input, metadata = {}) {
     customSections,
     outreachSequence,
     prospectProfile: prospectProfile && !prospectProfile.fallback_used ? prospectProfile : null,
+    seoAudit,
+    auditPageId,
+    auditPageUrl,
     sequenceSource,
     enrichedEmails: metadata.enrichedEmails || [],
     sendInfo: null,
@@ -507,16 +532,6 @@ function appendRunLog(run, message) {
   run.logs = run.logs.slice(0, 30);
 }
 
-function buildSearchQueries(run) {
-  const base = `${run.niche} ${run.location}`;
-  return [
-    `${base} official website`,
-    `${base} services`,
-    `${base} local business`,
-    `${base} contact`
-  ].slice(0, 4);
-}
-
 async function qualifyProspect(prospect, run) {
   const snapshot = await fetchPageSnapshot(prospect.websiteUrl);
   const haystack = `${prospect.searchTitle || ""} ${prospect.searchDescription || ""} ${snapshot.title} ${snapshot.description} ${snapshot.h1} ${snapshot.bodySample}`.toLowerCase();
@@ -552,41 +567,34 @@ async function processAutonomousRun(runId) {
   persistDb();
 
   try {
-    const queries = buildSearchQueries(run);
     const seenDomains = new Set();
     const prospects = [];
 
-    for (const query of queries) {
-      if (prospects.length >= run.targetCount) {
-        break;
-      }
+    appendRunLog(run, `Searching for "${run.niche}" in "${run.location}".`);
+    persistDb();
 
-      appendRunLog(run, `Searching for "${query}".`);
-      persistDb();
-
-      try {
-        const results = await discoverProspects(query, run.targetCount);
-        for (const result of results) {
-          if (prospects.length >= run.targetCount) {
-            break;
-          }
-
-          if (!result.domain || seenDomains.has(result.domain)) {
-            continue;
-          }
-
-          const qualified = await qualifyProspect(result, run);
-          if (!qualified.accepted) {
-            continue;
-          }
-
-          seenDomains.add(result.domain);
-          prospects.push(result);
+    try {
+      const results = await discoverProspects(run.niche, run.location, run.targetCount * 4);
+      for (const result of results) {
+        if (prospects.length >= run.targetCount) {
+          break;
         }
-      } catch (error) {
-        run.errors.push(`${query}: ${error.message}`);
-        appendRunLog(run, `Search failed for "${query}".`);
+
+        if (!result.domain || seenDomains.has(result.domain)) {
+          continue;
+        }
+
+        const qualified = await qualifyProspect(result, run);
+        if (!qualified.accepted) {
+          continue;
+        }
+
+        seenDomains.add(result.domain);
+        prospects.push(result);
       }
+    } catch (error) {
+      run.errors.push(`Discovery failed: ${error.message}`);
+      appendRunLog(run, `Search failed: ${error.message}`);
     }
 
     if (prospects.length === 0) {
@@ -599,7 +607,7 @@ async function processAutonomousRun(runId) {
       // AI enrichment — find contact emails before building the report
       let enrichedEmails = [];
       try {
-        const enrichResult = await enrichProspect(prospect.domain);
+        const enrichResult = await enrichProspect(prospect.companyName, prospect.websiteUrl, prospect.domain);
         enrichedEmails = enrichResult.emails || [];
         if (enrichedEmails.length > 0) {
           appendRunLog(run, `Found ${enrichedEmails.length} contact email(s) for ${prospect.companyName} via ${enrichResult.enrichmentSource}.`);
@@ -673,6 +681,19 @@ async function processAutonomousRun(runId) {
 }
 
 // ── Tracking ──────────────────────────────────────────────────────────────────
+
+export function recordAuditView(auditPageId) {
+  const events = auditViewEvents.get(auditPageId) || [];
+  events.push({ at: new Date().toISOString() });
+  auditViewEvents.set(auditPageId, events);
+}
+
+export function getAuditPage(auditPageId) {
+  const report = db.reports.find(r => r.auditPageId === auditPageId) || null;
+  if (!report) return null;
+  const views = auditViewEvents.get(auditPageId) || [];
+  return { report, viewCount: views.length };
+}
 
 export function recordOpen(trackingId) {
   const events = openEvents.get(trackingId) || [];
@@ -870,6 +891,7 @@ export async function scheduleSend(reportId, sendConfig) {
 
   // Hand off to sender
   scheduleSequence(reportId, stepsWithTracking, {
+    toEmail: sendConfig.recipientEmail || sendConfig.to || "",
     from: sendConfig.from || process.env.SMTP_USER || "",
     replyTo: sendConfig.replyTo || process.env.SMTP_USER || ""
   });

@@ -15,7 +15,9 @@ import {
   recordOpen,
   recordClick,
   getSendStatus,
-  scheduleSend
+  scheduleSend,
+  recordAuditView,
+  getAuditPage
 } from "./store.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -118,6 +120,243 @@ const loginPage = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+
+function buildAuditPage(report) {
+  const company = report.companyName || "Your Business";
+  const website = report.websiteUrl || "";
+  const location = report.location || "";
+  const seo = report.seoAudit;
+
+  const hasRealData = seo && !seo.fallback_used && seo.organicKeywords !== null;
+
+  const metricCards = hasRealData ? `
+    <div class="metric-card">
+      <div class="metric-value">${seo.organicKeywords.toLocaleString()}</div>
+      <div class="metric-label">Keywords Ranking</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">${seo.monthlyTraffic.toLocaleString()}</div>
+      <div class="metric-label">Monthly Organic Visitors</div>
+    </div>
+    <div class="metric-card accent">
+      <div class="metric-value">${seo.topKeywords.length > 0 ? "#" + seo.topKeywords[0].position : "—"}</div>
+      <div class="metric-label">Top Keyword Position</div>
+    </div>` : `
+    <div class="metric-card">
+      <div class="metric-value">—</div>
+      <div class="metric-label">Organic Keywords</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-value">—</div>
+      <div class="metric-label">Monthly Organic Visitors</div>
+    </div>
+    <div class="metric-card accent">
+      <div class="metric-value">Low</div>
+      <div class="metric-label">Search Visibility</div>
+    </div>`;
+
+  const keywordRows = hasRealData && seo.topKeywords.length > 0
+    ? seo.topKeywords.slice(0, 6).map(k => `
+        <tr>
+          <td>${escHtml(k.keyword)}</td>
+          <td class="pos pos-${k.position <= 10 ? "top" : k.position <= 20 ? "mid" : "low"}">#${k.position}</td>
+          <td>${(k.searchVolume || 0).toLocaleString()}/mo</td>
+        </tr>`).join("")
+    : `<tr><td colspan="3" class="empty-row">No keyword data available — DataForSEO API key not configured.</td></tr>`;
+
+  const biggestGap = seo?.biggestGap || `Limited search visibility for ${company} in ${location}`;
+
+  const findings = (report.findings || []).slice(0, 4).map(f => `
+    <li class="finding finding-${(f.severity || "").toLowerCase().replace(/\s+/g, "-")}">
+      <span class="finding-badge">${escHtml(f.severity || "Info")}</span>
+      <strong>${escHtml(f.title)}</strong>
+      <p>${escHtml(f.recommendation || f.evidence || "")}</p>
+    </li>`).join("") || `<li class="finding finding-medium"><strong>Website review required</strong><p>A manual review of your site will surface the most relevant opportunities.</p></li>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Audit Report — ${escHtml(company)}</title>
+  <style>
+    :root {
+      --bg: #08101a;
+      --surface: #0d1a2b;
+      --border: rgba(152,182,255,.13);
+      --text: #e8f0fc;
+      --muted: #8098c0;
+      --accent: #5be8b0;
+      --warn: #f6a623;
+      --danger: #ff6b6b;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #0d1a2b 0%, #091528 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 24px 24px;
+    }
+    .header-inner {
+      max-width: 760px;
+      margin: 0 auto;
+    }
+    .brand { font-size: 12px; font-weight: 700; letter-spacing: .1em; color: var(--accent); text-transform: uppercase; margin-bottom: 12px; }
+    .company-name { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 800; line-height: 1.2; margin-bottom: 6px; }
+    .company-meta { color: var(--muted); font-size: 14px; }
+    .main { max-width: 760px; margin: 32px auto; padding: 0 24px 60px; }
+    .section-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 40px; }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+    }
+    .metric-card.accent { border-color: rgba(91,232,176,.22); background: rgba(91,232,176,.04); }
+    .metric-value { font-size: 2rem; font-weight: 800; color: var(--text); line-height: 1; margin-bottom: 6px; }
+    .metric-card.accent .metric-value { color: var(--accent); }
+    .metric-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+    .gap-box {
+      background: rgba(246,166,35,.07);
+      border: 1px solid rgba(246,166,35,.25);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 40px;
+    }
+    .gap-box .gap-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--warn); margin-bottom: 8px; }
+    .gap-box p { color: var(--text); font-size: 15px; }
+    .kw-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 14px; }
+    .kw-table th { text-align: left; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 0 0 10px; border-bottom: 1px solid var(--border); }
+    .kw-table td { padding: 12px 0; border-bottom: 1px solid rgba(152,182,255,.06); }
+    .kw-table td:first-child { color: var(--text); }
+    .pos { font-weight: 700; text-align: center; }
+    .pos-top { color: var(--accent); }
+    .pos-mid { color: var(--warn); }
+    .pos-low { color: var(--danger); }
+    .kw-table td:last-child { color: var(--muted); text-align: right; }
+    .empty-row { color: var(--muted); text-align: center; padding: 24px 0; }
+    .findings-list { list-style: none; display: grid; gap: 14px; margin-bottom: 40px; }
+    .finding {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .finding-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: rgba(152,182,255,.12);
+      color: var(--muted);
+    }
+    .finding-high .finding-badge { background: rgba(255,107,107,.12); color: var(--danger); }
+    .finding-medium .finding-badge, .finding-opportunity .finding-badge { background: rgba(246,166,35,.12); color: var(--warn); }
+    .finding strong { display: block; font-size: 15px; margin-bottom: 6px; }
+    .finding p { font-size: 13px; color: var(--muted); }
+    .cta-section {
+      background: linear-gradient(135deg, rgba(91,232,176,.08), rgba(91,232,176,.02));
+      border: 1px solid rgba(91,232,176,.2);
+      border-radius: 20px;
+      padding: 32px 28px;
+      text-align: center;
+    }
+    .cta-section h2 { font-size: 1.4rem; margin-bottom: 10px; }
+    .cta-section p { color: var(--muted); margin-bottom: 24px; font-size: 15px; }
+    .cta-btn {
+      display: inline-block;
+      background: var(--accent);
+      color: #08101a;
+      font-weight: 800;
+      font-size: 15px;
+      padding: 14px 32px;
+      border-radius: 100px;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .cta-btn:hover { opacity: .88; }
+    .footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); margin-top: 20px; }
+    @media (prefers-color-scheme: light) {
+      :root { --bg: #f5f8ff; --surface: #fff; --border: rgba(0,40,100,.1); --text: #0d1a2b; --muted: #5a6e8e; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-inner">
+      <div class="brand">Free Website Audit Report</div>
+      <h1 class="company-name">${escHtml(company)}</h1>
+      <p class="company-meta">${escHtml(website)}${location ? " &nbsp;·&nbsp; " + escHtml(location) : ""}</p>
+    </div>
+  </div>
+
+  <main class="main">
+
+    <div class="section-title">Organic Search Health</div>
+    <div class="metrics">
+      ${metricCards}
+    </div>
+
+    <div class="gap-box">
+      <div class="gap-label">Biggest Opportunity</div>
+      <p>${escHtml(biggestGap)}</p>
+    </div>
+
+    ${hasRealData ? `
+    <div class="section-title">Keyword Rankings</div>
+    <table class="kw-table">
+      <thead>
+        <tr>
+          <th>Keyword</th>
+          <th style="text-align:center">Position</th>
+          <th style="text-align:right">Search Volume</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${keywordRows}
+      </tbody>
+    </table>` : ""}
+
+    <div class="section-title">Issues Found</div>
+    <ul class="findings-list">
+      ${findings}
+    </ul>
+
+    <div class="cta-section">
+      <h2>Want to fix this?</h2>
+      <p>We help businesses like yours win more organic visibility and leads. No contracts, no fluff — just clear priorities and execution.</p>
+      <a href="mailto:${escHtml(process.env.AUDIT_REPLY_EMAIL || process.env.SMTP_USER || "hello@yourdomain.com")}" class="cta-btn">Book a Free Call</a>
+    </div>
+  </main>
+
+  <footer class="footer">
+    This report was generated automatically and is intended for the recipient only.
+    Data sourced from public search index. &copy; ${new Date().getFullYear()} ${escHtml(process.env.COMPANY_NAME || "MailOutreach AI")}.
+  </footer>
+</body>
+</html>`;
+}
+
+function escHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 // 1x1 transparent PNG for open tracking
 const TRACKING_PIXEL = Buffer.from(
@@ -381,6 +620,34 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(302, { "Location": targetUrl });
     res.end();
+    return;
+  }
+
+  // ── Public audit report page (no auth — sent to prospects in outreach) ────
+
+  if (req.method === "GET" && pathname.startsWith("/audit/")) {
+    const segments = getPathSegments(pathname);
+    const auditPageId = segments[1];
+    if (!auditPageId) {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    recordAuditView(auditPageId);
+    const auditData = getAuditPage(auditPageId);
+    if (!auditData) {
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+      res.end("<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'><h2>Report not found</h2><p>This audit link may have expired or the ID is incorrect.</p></body></html>");
+      return;
+    }
+    const auditHtml = buildAuditPage(auditData.report);
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff"
+    });
+    res.end(auditHtml);
     return;
   }
 
