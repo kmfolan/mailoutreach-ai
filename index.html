@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MailOutreach AI | AI-Powered Outreach Workspace</title>
+  <meta
+    name="description"
+    content="MailOutreach AI uses Claude and GPT-4o to research prospects, write personalized email sequences, and schedule outreach — all from one protected workspace."
+  >
+  <meta name="theme-color" content="#0f1324">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MO-AI">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
+    rel="stylesheet"
+  >
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="MailOutreach AI home">
+        <span class="brand-badge">AI</span>
+        <span>
+          <strong>MailOutreach AI</strong>
+          <small>Claude + GPT-4o outreach engine</small>
+        </span>
+      </a>
+
+      <nav class="nav" aria-label="Primary">
+        <a href="#brief">Brief</a>
+        <a href="#report">Report</a>
+        <a href="#history">History</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <a class="button button-ghost" href="#brief">New report</a>
+        <button class="button button-ghost" type="button" id="logout-button">Sign out</button>
+      </div>
+    </header>
+
+    <main id="home">
+      <section class="hero-layout">
+        <div class="hero-copy">
+          <p class="eyebrow">AI-powered outreach</p>
+          <h1>Claude writes the emails. GPT-4o researches the prospect. You send.</h1>
+          <p class="hero-text">
+            Discover prospects by niche and location via Google Maps, enrich contacts via Snov.io,
+            then let Claude write a 3-email sequence from the live website research.
+            One-off manual reports also supported.
+          </p>
+
+          <div class="hero-actions">
+            <a class="button button-primary" href="#brief">Create report</a>
+            <a class="button button-ghost" href="#report">See current draft</a>
+          </div>
+
+          <div class="hero-stats" id="summary-cards">
+            <article class="stat-card">
+              <span class="label">Active reports</span>
+              <strong>0</strong>
+            </article>
+            <article class="stat-card">
+              <span class="label">Active runs</span>
+              <strong>0</strong>
+            </article>
+            <article class="stat-card">
+              <span class="label">Latest company</span>
+              <strong>Loading</strong>
+            </article>
+            <article class="stat-card">
+              <span class="label">Source coverage</span>
+              <strong>0</strong>
+            </article>
+          </div>
+        </div>
+
+        <aside class="hero-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">AI pipeline</p>
+            <h2>Four agents that run automatically on every prospect.</h2>
+          </div>
+          <div class="mini-grid">
+            <article>
+              <span class="label">Agent 1 — GPT-4o mini</span>
+              <strong>Prospect research + profile</strong>
+            </article>
+            <article>
+              <span class="label">Agent 2 — Claude Sonnet</span>
+              <strong>Personalized email sequence</strong>
+            </article>
+            <article>
+              <span class="label">Agent 3A — GPT-4o mini</span>
+              <strong>Reply classification</strong>
+            </article>
+            <article>
+              <span class="label">Agent 3B — Claude Sonnet</span>
+              <strong>Intelligent reply drafts</strong>
+            </article>
+          </div>
+        </aside>
+      </section>
+
+      <section class="planner-layout" id="autonomous">
+        <article class="panel planner-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Autonomous campaign</p>
+            <h2>Queue a search-driven discovery run.</h2>
+            <p>Define the niche, location, CTA, and report requirements. The system will discover prospects, enrich contacts, and draft AI-written reports automatically.</p>
+          </div>
+
+          <form id="autonomous-form" class="setup-form">
+            <div class="wizard-steps">
+              <button class="wizard-step is-active" type="button" data-step-nav="1">1. Basics</button>
+              <button class="wizard-step" type="button" data-step-nav="2">2. Offer</button>
+              <button class="wizard-step" type="button" data-step-nav="3">3. Filters</button>
+              <button class="wizard-step" type="button" data-step-nav="4">4. Launch</button>
+            </div>
+
+            <div class="wizard-panel is-active" data-step-panel="1">
+              <div class="form-grid">
+                <label>
+                  Campaign name
+                  <input name="campaignName" type="text" value="Florida agencies outreach" required>
+                </label>
+                <label>
+                  Niche
+                  <input name="niche" type="text" value="digital marketing agency" required>
+                </label>
+                <label>
+                  Location
+                  <input name="location" type="text" value="Miami, Florida" required>
+                </label>
+                <label>
+                  Audit mode
+                  <select name="auditMode" required>
+                    <option>Agency</option>
+                    <option>SEO</option>
+                    <option>Social</option>
+                    <option>Mixed</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="wizard-panel" data-step-panel="2">
+              <div class="form-grid">
+                <label class="field-wide">
+                  CTA
+                  <input name="cta" type="text" value="book more strategy calls from the website" required>
+                </label>
+                <label class="field-wide">
+                  Pain points
+                  <textarea name="painPoints" rows="4" required>weak CTA
+unclear offer
+thin trust proof
+weak local visibility</textarea>
+                </label>
+                <label class="field-wide">
+                  Report requirements
+                  <textarea name="reportRequirements" rows="4" required>website structure review
+CTA clarity
+proof gaps
+SEO quick wins
+recommended fixes</textarea>
+                </label>
+              </div>
+            </div>
+
+            <div class="wizard-panel" data-step-panel="3">
+              <div class="form-grid">
+                <label>
+                  Prospect count
+                  <input name="targetCount" type="number" min="1" max="10" value="3" required>
+                </label>
+                <label>
+                  Platform targets
+                  <input name="platformTargets" type="text" value="LinkedIn, Facebook, Google Maps">
+                </label>
+                <label class="field-wide">
+                  Notes
+                  <textarea name="notes" rows="4">Prioritize service businesses that look established but still have weak conversion structure.</textarea>
+                </label>
+              </div>
+            </div>
+
+            <div class="wizard-panel" data-step-panel="4">
+              <div class="plan-summary" id="autonomous-review">
+                <p>Review your campaign details before starting the run.</p>
+              </div>
+            </div>
+
+            <div class="form-actions wizard-actions">
+              <button class="button button-ghost" type="button" id="autonomous-prev-button">Back</button>
+              <button class="button button-ghost" type="button" id="autonomous-next-button">Next</button>
+              <button class="button button-primary" type="submit" id="autonomous-submit-button">Start autonomous run</button>
+              <p id="autonomous-status" class="status-text">Ready to discover prospects.</p>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel preview-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Run tracker</p>
+            <h2>Queued and completed autonomous runs.</h2>
+          </div>
+
+          <div id="autonomous-runs" class="history-list"></div>
+        </article>
+      </section>
+
+      <section class="planner-layout" id="brief">
+        <article class="panel planner-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Manual brief</p>
+            <h2>Create a one-off AI-researched report.</h2>
+            <p>Claude will research the prospect website and write a personalized 3-email sequence. GPT-4o builds the prospect profile first.</p>
+          </div>
+
+          <form id="setup-form" class="setup-form">
+            <div class="form-grid">
+              <label>
+                Company name
+                <input name="companyName" type="text" value="Signal Peak Labs" required>
+              </label>
+              <label>
+                Website URL
+                <input name="websiteUrl" type="text" value="signalpeaklabs.com" required>
+              </label>
+              <label>
+                Target location
+                <input name="location" type="text" value="Austin, Texas" required>
+              </label>
+              <label>
+                Audit mode
+                <select name="auditMode" required>
+                  <option>Agency</option>
+                  <option>SEO</option>
+                  <option>Social</option>
+                  <option>Mixed</option>
+                </select>
+              </label>
+              <label class="field-wide">
+                CTA
+                <input name="cta" type="text" value="book more discovery calls from the homepage" required>
+              </label>
+              <label class="field-wide">
+                Pain points
+                <textarea name="painPoints" rows="4" required>weak homepage CTA
+unclear service positioning
+thin trust proof
+inconsistent local search visibility</textarea>
+              </label>
+              <label class="field-wide">
+                Source URLs to review
+                <textarea name="sourceUrls" rows="3">https://signalpeaklabs.com</textarea>
+              </label>
+              <label class="field-wide">
+                Report requirements
+                <textarea name="reportRequirements" rows="4" required>website structure review
+CTA clarity and conversion friction
+trust proof gaps
+SEO quick wins
+recommended fixes for the report</textarea>
+              </label>
+              <label class="field-wide">
+                Notes
+                <textarea name="notes" rows="3">This client is an agency prospect. Keep the report practical and easy to skim.</textarea>
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button class="button button-primary" type="submit">Generate AI report + sequence</button>
+              <button class="button button-ghost" type="button" id="reset-draft-button">Reset draft</button>
+              <p id="form-status" class="status-text">Ready to build a report.</p>
+            </div>
+          </form>
+        </article>
+
+        <article class="panel preview-panel" id="report">
+          <div class="panel-heading">
+            <p class="eyebrow">Current report</p>
+            <h2>Latest AI-written report and outreach sequence.</h2>
+          </div>
+
+          <div class="results-grid" id="plan-metrics">
+            <article class="metric-card">
+              <span class="label">Findings</span>
+              <strong>0</strong>
+            </article>
+            <article class="metric-card">
+              <span class="label">Custom sections</span>
+              <strong>0</strong>
+            </article>
+            <article class="metric-card">
+              <span class="label">Reviewed sources</span>
+              <strong>0</strong>
+            </article>
+            <article class="metric-card">
+              <span class="label">Sequence steps</span>
+              <strong>0</strong>
+            </article>
+          </div>
+
+          <div class="plan-summary" id="plan-summary">
+            <p>Generate a report to see the executive summary and the current workflow stage.</p>
+          </div>
+
+          <div class="plan-controls">
+            <label>
+              Workflow stage
+              <select id="plan-status-select">
+                <option>Researching</option>
+                <option>Drafted</option>
+                <option>Reviewing</option>
+                <option>Ready to Send</option>
+                <option>Live</option>
+              </select>
+            </label>
+            <p id="plan-status-message" class="status-text">Load or create a report to manage the workflow stage.</p>
+          </div>
+
+          <div class="checklist-block">
+            <h3>Delivery status</h3>
+            <div id="delivery-status-card" class="empty-state">
+              No sending configured yet. Use the send button below after approving the sequence.
+            </div>
+            <div id="send-status-node" class="timeline-list" style="display:none"></div>
+          </div>
+
+          <div class="form-actions">
+            <button class="button button-primary" type="button" id="send-sequence-button" style="display:none">Send sequence</button>
+            <button class="button button-ghost" type="button" id="copy-plan-button">Copy report + sequence</button>
+            <p id="copy-status" class="status-text">Nothing copied yet.</p>
+          </div>
+
+          <div class="checklist-block">
+            <h3>Checklist</h3>
+            <ul id="checklist-list" class="stack-list"></ul>
+          </div>
+        </article>
+      </section>
+
+      <section class="workspace-layout">
+        <article class="panel workspace-main">
+          <div class="panel-heading">
+            <p class="eyebrow">Findings and report</p>
+            <h2>Client-specific findings, source review, and custom sections.</h2>
+          </div>
+
+          <div id="recommendations-list" class="insight-grid"></div>
+          <div id="warmup-grid" class="source-grid"></div>
+        </article>
+
+        <article class="panel workspace-side">
+          <div class="panel-heading">
+            <p class="eyebrow">Outreach sequence</p>
+            <h2>Three steps written by Claude from live research.</h2>
+          </div>
+
+          <div id="recent-requests" class="timeline-list"></div>
+          <div class="divider"></div>
+          <div id="activity-feed" class="timeline-list"></div>
+        </article>
+      </section>
+
+      <section class="history-layout" id="history">
+        <article class="panel history-panel">
+          <div class="panel-heading">
+            <p class="eyebrow">Saved reports</p>
+            <h2>Reopen client work without losing the AI-written structure.</h2>
+          </div>
+
+          <div id="plan-history" class="history-list"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <!-- Send sequence modal -->
+  <div id="send-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="send-modal-title">
+    <div class="modal-card">
+      <h2 id="send-modal-title">Send outreach sequence</h2>
+      <p>This will schedule the 3-email sequence via the configured SMTP mailbox.</p>
+      <form id="send-form">
+        <label>
+          Recipient email
+          <input name="recipientEmail" type="email" placeholder="contact@prospect.com" required>
+        </label>
+        <label>
+          Reply-to (optional)
+          <input name="replyTo" type="email" placeholder="you@yourdomain.com">
+        </label>
+        <div class="form-actions">
+          <button class="button button-primary" type="submit">Schedule and send</button>
+          <button class="button button-ghost" type="button" id="send-modal-cancel">Cancel</button>
+        </div>
+        <p id="send-modal-status" class="status-text"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

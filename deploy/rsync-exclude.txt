@@ -1,0 +1,8 @@
+.git
+tools
+server/node_modules
+server.log
+server/data/db.json
+.env
+*.zip
+Thumbs.db

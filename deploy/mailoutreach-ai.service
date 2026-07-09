@@ -1,0 +1,17 @@
+[Unit]
+Description=MailOutreach AI Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/mailoutreach-ai
+ExecStart=/usr/bin/node /opt/mailoutreach-ai/server/src/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=/opt/mailoutreach-ai/.env
+
+[Install]
+WantedBy=multi-user.target

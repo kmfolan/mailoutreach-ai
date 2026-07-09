@@ -1,0 +1,10 @@
+{
+  "name": "MailOutreach AI",
+  "short_name": "MO-AI",
+  "description": "AI-powered prospect discovery, email writing, and outreach sequencing.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#09101a",
+  "theme_color": "#0f1324",
+  "orientation": "portrait-primary"
+}
