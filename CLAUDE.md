@@ -5,13 +5,14 @@
 MailOutreach AI is an AI-powered cold outreach platform that extends the original MailOutreach with:
 
 1. **AI prospect research** — GPT-4o mini analyzes the prospect website and builds a profile before email writing.
-2. **AI email writing** — Claude Sonnet writes personalized 3-email sequences from the prospect profile.
-3. **Contact enrichment** — Google Maps Places API (primary) + Bing RSS (fallback) for discovery; Snov.io for email enrichment.
-4. **Email sending** — nodemailer SMTP stub wired to Microsoft 365 (or any provider).
-5. **Open/click tracking** — pixel + redirect endpoints with in-memory event storage.
-6. **Reply classification (Agent 3A)** — GPT-4o mini classifies inbound replies into 7 categories.
-7. **Reply drafting (Agent 3B)** — Claude Sonnet drafts appropriate reply based on classification.
-8. **Weekly optimizer (Agent 4)** — GPT-4o analyzes campaign-level data and produces a priority action plan.
+2. **SEO audit (Agent 1.5)** — DataForSEO pulls real keyword rankings and organic traffic per prospect. Generates a unique public audit report page (`/audit/:id`) used as the free audit hook in outreach emails.
+3. **AI email writing** — Claude Sonnet writes personalized 3-email sequences. Email 1 teases the audit with real SEO numbers; Email 2 includes the audit URL as the CTA.
+4. **Contact enrichment** — Google Maps Places API (primary) + Bing RSS (fallback) for discovery; Snov.io for email enrichment.
+5. **Email sending** — nodemailer SMTP stub wired to Microsoft 365 (or any provider).
+6. **Open/click/audit tracking** — pixel + redirect + audit page view endpoints with in-memory event storage.
+7. **Reply classification (Agent 3A)** — GPT-4o mini classifies inbound replies into 7 categories.
+8. **Reply drafting (Agent 3B)** — Claude Sonnet drafts appropriate reply based on classification.
+9. **Weekly optimizer (Agent 4)** — GPT-4o analyzes campaign-level data and produces a priority action plan.
 
 Both manual and autonomous workflows are supported, same as the original.
 
@@ -95,6 +96,7 @@ Server listens on `http://localhost:4021` by default (port 4021 to avoid conflic
 | `OPENAI_API_KEY` | For research, classification, optimizer agents | Yes for AI features |
 | `ANTHROPIC_API_KEY` | For email writer and reply drafter agents | Yes for AI features |
 | `GOOGLE_MAPS_API_KEY` | Places Text Search API for discovery | Yes for autonomous runs |
+| `DATAFORSEO_LOGIN` / `DATAFORSEO_PASSWORD` | DataForSEO API for SEO audit (Agent 1.5) | No (falls back gracefully) |
 | `SNOV_CLIENT_ID` / `SNOV_CLIENT_SECRET` | Snov.io contact enrichment | No (falls back to patterns) |
 | `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` | SMTP sending credentials | Yes for email sending |
 | `SMTP_PORT`, `SMTP_SECURE` | SMTP port and TLS flag | No |
@@ -126,6 +128,7 @@ All `/api/` routes except auth require a valid session cookie (`outbound_forge_s
 | `GET` | `/api/autonomous-runs/:id` | Fetch autonomous run |
 | `GET` | `/track/open/:trackingId` | Record email open → return 1x1 pixel (public) |
 | `GET` | `/track/click/:trackingId?url=...` | Record click → redirect to url (public) |
+| `GET` | `/audit/:auditPageId` | Render branded SEO audit report page (public — sent to prospects) |
 
 ---
 
@@ -136,6 +139,9 @@ Same shape as original (`server/data/db.json`), with these additions to report r
 ### New report fields
 
 - `prospectProfile` — AI-generated profile from Agent 1 (or `null` if AI failed/skipped)
+- `seoAudit` — DataForSEO metrics from Agent 1.5: `{ domain, organicKeywords, monthlyTraffic, topKeywords, biggestGap }` (or `null` if skipped/failed)
+- `auditPageId` — unique ID for the public audit report page, e.g. `audit_1720000000000_abc123`
+- `auditPageUrl` — full public URL: `https://TRACKING_HOST/audit/:auditPageId`
 - `sequenceSource` — `"ai"` | `"template"` — indicates which path generated the sequence
 - `enrichedEmails` — array of contact email strings from Snov.io or pattern guessing
 - `sendInfo` — `{scheduledAt, to, steps: [{step, trackingId}]}` — persisted after send
@@ -157,6 +163,17 @@ Same shape as original (`server/data/db.json`), with these additions to report r
 ---
 
 ## AI Agent Architecture
+
+### Agent 1.5 — SEO Audit (`agents/seoAudit.js`)
+- **API:** DataForSEO Labs (HTTP Basic Auth: `DATAFORSEO_LOGIN:DATAFORSEO_PASSWORD`)
+- **Input:** `domain`, `companyName`, `niche`, `location`
+- **Calls:** `domain_rank_overview/live` + `ranked_keywords/live` in parallel
+- **Output:** `{ organicKeywords, monthlyTraffic, topKeywords, biggestGap, fallback_used }`
+- **Timeout:** 15s
+- **Fallback:** `{ fallback_used: true, biggestGap: "Limited search visibility..." }`
+- **Stored as:** `seoAudit` on the report record
+- **Audit page:** auto-generated `auditPageId` → public URL `https://TRACKING_HOST/audit/:id`
+- **Cost:** ~$0.002 per domain (DataForSEO pay-per-call)
 
 ### Agent 1 — Research (`agents/research.js`)
 - **Model:** `gpt-4o-mini`

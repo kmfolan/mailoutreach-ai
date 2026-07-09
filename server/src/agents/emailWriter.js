@@ -18,7 +18,11 @@ const SYSTEM_PROMPT =
   "'Would you be open to a quick 15-minute call?', 'I noticed your company' (too generic). " +
   "LENGTH: Email 1: 90-130 words max. Email 2: 70-100 words max. Email 3: 50-75 words max. " +
   "SUBJECT LINES: Under 7 words, lowercase preferred, no clickbait. " +
-  "CTA: One per email. Email 1: low-friction question. Email 2: slightly more direct. Email 3: soft close. " +
+  "CTA: One per email. Email 1: tease the audit — offer to send it or ask if they want to see it. " +
+  "Email 2: include the audit URL directly (use the auditPageUrl from the brief). " +
+  "Email 3: soft close referencing the unseen audit. " +
+  "AUDIT HOOK: When seoAudit data is provided, Email 1 must reference a specific SEO finding " +
+  "(keyword count, traffic number, or position) to prove you actually looked at their site. " +
   "SPECIFICITY: Email 1 must reference at least one specific personalization hook."
 
 /**
@@ -35,6 +39,8 @@ function buildCachedBlock(campaignBrief) {
     reportRequirements = [],
     location = "",
     companyName = "",
+    auditPageUrl = "",
+    seoAudit = null,
   } = campaignBrief
 
   const painPointsList = Array.isArray(painPoints)
@@ -45,6 +51,23 @@ function buildCachedBlock(campaignBrief) {
     ? reportRequirements.join(", ")
     : reportRequirements
 
+  let seoBlock = ""
+  if (seoAudit && !seoAudit.fallback_used) {
+    const kwLines = seoAudit.topKeywords.slice(0, 3).map(
+      k => `  • "${k.keyword}" → position ${k.position} (${(k.searchVolume || 0).toLocaleString()} searches/mo)`
+    ).join("\n")
+    seoBlock =
+      `\nSEO audit data (use these specific numbers in email 1):\n` +
+      `- Organic keywords ranking: ${seoAudit.organicKeywords ?? "unknown"}\n` +
+      `- Estimated monthly traffic: ${seoAudit.monthlyTraffic ?? "unknown"}\n` +
+      `- Biggest gap: ${seoAudit.biggestGap}\n` +
+      (kwLines ? `- Top keyword positions:\n${kwLines}\n` : "")
+  }
+
+  const auditBlock = auditPageUrl
+    ? `\nAudit page URL (use this in email 2's body as the CTA link): ${auditPageUrl}\n`
+    : ""
+
   return (
     SYSTEM_PROMPT +
     `\n\nCampaign brief:\n` +
@@ -53,7 +76,9 @@ function buildCachedBlock(campaignBrief) {
     `- Pain points: ${painPointsList || "none specified"}\n` +
     `- Positioning: ${requirementsList || "none specified"}\n` +
     `- Market: ${location}` +
-    (companyName ? `\n- Sender company: ${companyName}` : "")
+    (companyName ? `\n- Sender company: ${companyName}` : "") +
+    seoBlock +
+    auditBlock
   )
 }
 
