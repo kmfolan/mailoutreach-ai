@@ -30,6 +30,7 @@
  */
 
 import { writeFileSync } from "node:fs"
+import { leadsToCsv } from "../src/leadsCsv.js"
 
 const args = process.argv.slice(2)
 const flag = name => args.includes(name)
@@ -50,45 +51,7 @@ const FROM = opt("--from", "verify@example.com")
 const WITH_PHONE = !flag("--no-phone")
 const SELF_TEST = flag("--self-test")
 
-// ── Google Contacts CSV ─────────────────────────────────────────────────────
-const HEADERS = [
-  "Name", "Given Name", "Family Name", "Organization Name", "Organization Title",
-  "E-mail 1 - Value", "Phone 1 - Value", "Website 1 - Value", "Address 1 - Formatted", "Notes"
-]
-
-function csvCell(value) {
-  const s = value == null ? "" : String(value)
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
-
-function splitName(fullName) {
-  const parts = String(fullName || "").trim().split(/\s+/)
-  if (parts.length < 2) {
-    return { given: parts[0] || "", family: "" }
-  }
-  return { given: parts[0], family: parts.slice(1).join(" ") }
-}
-
-function leadsToCsv(leads) {
-  const rows = leads.map(lead => {
-    const { given, family } = splitName(lead.contactName)
-    return [
-      lead.contactName || lead.company,
-      given,
-      family,
-      lead.company,
-      lead.title || "",
-      lead.email,
-      lead.phone || "",
-      lead.website || "",
-      lead.address || "",
-      [lead.emailSource ? `email via ${lead.emailSource}` : "", lead.verifyStatus]
-        .filter(Boolean)
-        .join(" · ")
-    ]
-  })
-  return [HEADERS, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n"
-}
+// CSV rendering is shared with the API job runner via ../src/leadsCsv.js.
 
 // ── Self-test (offline) ──────────────────────────────────────────────────────
 function runSelfTest() {

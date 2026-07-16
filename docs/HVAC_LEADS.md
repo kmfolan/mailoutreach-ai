@@ -68,6 +68,42 @@ Flags: `--target N`, `--out FILE`, `--maps-only`, `--no-scrape`, `--patterns`,
 
 Import the resulting CSV at **contacts.google.com → Import**.
 
+## API endpoint (run from any Claude surface)
+
+Deploy the server on your droplet and trigger the same engine from Claude on the
+web *or* Claude Desktop — keys stay server-side, no local egress needed. Runs
+are async (a 5,000 pull outlives an HTTP request), so you start a job, poll it,
+then download the CSV. All routes sit behind the app's existing session auth.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/hvac-leads` | Start a job → `202 { job: { id, status } }` |
+| `GET` | `/api/hvac-leads/:id` | Poll status → `{ job: { status, kept, target, … } }` |
+| `GET` | `/api/hvac-leads/:id/download` | Download CSV when `status === "done"` (`409` if not ready) |
+
+Request body (all optional except that keys must be configured server-side):
+
+```json
+{ "mode": "comprehensive", "target": 5000, "smtp": false }
+```
+
+`mode` ∈ `standard` (Maps→Apollo→scrape→verify) · `comprehensive` (also
+patterns) · `maps-only` (no Apollo key needed) · `apollo-only` (no scrape).
+`target` is clamped to 5000. Jobs live in memory and are kept ~1h for download.
+
+```bash
+# start
+curl -b cookies -X POST https://YOUR_HOST/api/hvac-leads \
+  -H 'Content-Type: application/json' -d '{"mode":"comprehensive","target":5000}'
+# poll
+curl -b cookies https://YOUR_HOST/api/hvac-leads/JOB_ID
+# download
+curl -b cookies https://YOUR_HOST/api/hvac-leads/JOB_ID/download -o hvac-leads.csv
+```
+
+Code: `server/src/hvacJobs.js` (job runner), routes in `server/src/index.js`,
+CSV in `server/src/leadsCsv.js`.
+
 ## Where it runs
 
 The script needs outbound network access to `maps.googleapis.com`,
