@@ -1,0 +1,9 @@
+{
+  "name": "mailoutreach-hvac-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP connector exposing the MailOutreach HVAC lead-gen endpoint as tools for Claude Desktop.",
+  "bin": { "mailoutreach-hvac-mcp": "hvac-mcp.mjs" },
+  "engines": { "node": ">=18" }
+}
