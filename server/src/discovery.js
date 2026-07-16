@@ -387,6 +387,116 @@ export async function findEmailWithSnov(domain) {
 }
 
 // ---------------------------------------------------------------------------
+// Website email scraping — fallback enrichment (Layer 3 of the waterfall)
+//
+// When Apollo has no contact for a domain, scrape the company's OWN website
+// (homepage + common contact pages) for a published email. Scraping a
+// business's own site is fine; this never touches third-party sites.
+// ---------------------------------------------------------------------------
+
+const EMAIL_REGEX = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi
+
+// Domains/labels that are almost always false positives from HTML: asset files
+// (logo@2x.png → "png"), error trackers, page builders, and placeholders.
+const JUNK_EMAIL_HOSTS = [
+  "sentry.io", "sentry-next.wixpress.com", "wixpress.com", "example.com",
+  "example.org", "yourdomain.com", "domain.com", "email.com", "godaddy.com"
+]
+const JUNK_TLDS = [
+  "png", "jpg", "jpeg", "gif", "webp", "svg", "css", "js", "ico", "mp4",
+  "woff", "woff2", "ttf", "eot", "webmanifest", "json", "xml"
+]
+
+export function isJunkEmail(email) {
+  const value = String(email || "").toLowerCase()
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(value)) {
+    return true
+  }
+  const host = value.split("@")[1]
+  const tld = host.split(".").pop()
+  if (JUNK_TLDS.includes(tld)) {
+    return true
+  }
+  if (JUNK_EMAIL_HOSTS.some(junk => host === junk || host.endsWith(`.${junk}`))) {
+    return true
+  }
+  // Cache-busting artifacts like "image@2x.something".
+  if (/@\d+x\./.test(value)) {
+    return true
+  }
+  return false
+}
+
+export function extractEmailsFromHtml(html) {
+  const matches = String(html || "").match(EMAIL_REGEX) || []
+  const unique = new Set()
+  for (const match of matches) {
+    const email = match.toLowerCase()
+    if (!isJunkEmail(email)) {
+      unique.add(email)
+    }
+  }
+  return [...unique]
+}
+
+// Choose the best email for outreach: prefer same-domain addresses, then
+// owner/personal-looking role names over generic ones.
+export function pickBestEmail(emails, domain) {
+  if (!emails || emails.length === 0) {
+    return ""
+  }
+  const rank = email => {
+    const [local, host] = email.split("@")
+    let score = 0
+    if (domain && host === domain) {
+      score += 100
+    }
+    if (["owner", "president", "ceo", "founder"].some(r => local.includes(r))) {
+      score += 20
+    } else if (["info", "contact", "hello", "office", "sales", "admin"].includes(local)) {
+      score += 10
+    }
+    return score
+  }
+  return [...emails].sort((a, b) => rank(b) - rank(a))[0]
+}
+
+export async function scrapeSiteEmails(websiteUrl) {
+  if (!websiteUrl) {
+    return []
+  }
+  const base = rootUrl(websiteUrl)
+  const paths = ["", "contact", "contact-us", "about", "about-us"]
+  const found = new Set()
+
+  for (const path of paths) {
+    let target
+    try {
+      target = new URL(path, base).toString()
+    } catch {
+      continue
+    }
+    try {
+      const response = await fetchText(target)
+      if (!response.ok) {
+        continue
+      }
+      for (const email of extractEmailsFromHtml(response.text)) {
+        found.add(email)
+      }
+      // Stop early once the homepage/contact page yields something usable.
+      if (found.size > 0 && (path === "" || path === "contact" || path === "contact-us")) {
+        break
+      }
+    } catch {
+      // unreachable page — try the next path
+    }
+  }
+
+  return [...found]
+}
+
+// ---------------------------------------------------------------------------
 // Pattern-based email guesser — fallback when no enrichment data is available
 // ---------------------------------------------------------------------------
 

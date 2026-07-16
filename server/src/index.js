@@ -19,6 +19,7 @@ import {
   recordAuditView,
   getAuditPage
 } from "./store.js";
+import { startHvacJob, getHvacJob, getHvacJobCsv } from "./hvacJobs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -829,6 +830,67 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message });
     }
+    return;
+  }
+
+  // ── HVAC lead-gen: async job start / status / download ──────────────────────
+  if (req.method === "POST" && pathname === "/api/hvac-leads") {
+    try {
+      const payload = await collectJsonBody(req);
+      if (!process.env.GOOGLE_MAPS_API_KEY) {
+        sendJson(res, 400, { ok: false, error: "GOOGLE_MAPS_API_KEY is not configured on the server" });
+        return;
+      }
+      const mode = String(payload.mode || "standard").toLowerCase();
+      const needsApollo = mode !== "maps-only";
+      if (needsApollo && !process.env.APOLLO_API_KEY) {
+        sendJson(res, 400, { ok: false, error: "APOLLO_API_KEY is not configured (or use mode \"maps-only\")" });
+        return;
+      }
+      const job = startHvacJob({
+        target: payload.target,
+        mode,
+        smtp: payload.smtp,
+        from: payload.from,
+        cities: Array.isArray(payload.cities) ? payload.cities : undefined,
+        terms: Array.isArray(payload.terms) ? payload.terms : undefined
+      });
+      sendJson(res, 202, { ok: true, job });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message });
+    }
+    return;
+  }
+
+  if (req.method === "GET" && pathname.startsWith("/api/hvac-leads/") && pathname.endsWith("/download")) {
+    const segments = getPathSegments(pathname);
+    const jobId = segments[2];
+    const csv = getHvacJobCsv(jobId);
+    if (!csv) {
+      const job = getHvacJob(jobId);
+      if (!job) {
+        sendJson(res, 404, { ok: false, error: "Job not found" });
+      } else {
+        sendJson(res, 409, { ok: false, error: `Job not ready (status: ${job.status})`, job });
+      }
+      return;
+    }
+    res.writeHead(200, baseHeaders({
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="hvac-leads-${jobId}.csv"`
+    }));
+    res.end(csv);
+    return;
+  }
+
+  if (req.method === "GET" && pathname.startsWith("/api/hvac-leads/")) {
+    const segments = getPathSegments(pathname);
+    const job = getHvacJob(segments[2]);
+    if (!job) {
+      sendJson(res, 404, { ok: false, error: "Job not found" });
+      return;
+    }
+    sendJson(res, 200, { ok: true, job });
     return;
   }
 
