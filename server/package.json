@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "node src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "hvac-list": "node scripts/build-hvac-list.mjs",
+    "hvac-list:test": "node scripts/build-hvac-list.mjs --self-test"
   }
 }
