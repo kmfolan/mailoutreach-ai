@@ -2,8 +2,9 @@
 /**
  * build-hvac-list.mjs — CLI to build a Google-Contacts-ready CSV of HVAC leads.
  *
- * Pipeline: Google Maps discovery → Apollo owner+email enrichment →
- *           drop emailless rows, dedup → Google Contacts CSV.
+ * Waterfall: Google Maps discovery → Apollo owner+email → website-scrape
+ *            fallback → pattern fallback → MX/SMTP verify → drop emailless,
+ *            dedup → Google Contacts CSV.
  *
  * Usage (from repo root or server/):
  *   GOOGLE_MAPS_API_KEY=... APOLLO_API_KEY=... \
@@ -12,13 +13,20 @@
  * Flags:
  *   --target N       stop after N kept leads (default 5000)
  *   --out FILE       output CSV path (default hvac-leads.csv)
- *   --maps-only      skip Apollo; use role-based pattern emails (info@domain)
+ *   --maps-only      skip Apollo (Maps + website scrape only)
+ *   --no-scrape      disable the website-scrape fallback (Layer 3)
+ *   --patterns       allow last-resort role emails (info@domain) (Layer 4)
+ *   --comprehensive  max coverage: scrape + patterns + verify all on
+ *   --no-verify      skip MX verification (Layer 5)
+ *   --smtp           also SMTP-probe mailboxes (slow, opt-in)
+ *   --from ADDR      MAIL FROM identity for SMTP probing
  *   --no-phone       skip Place Details phone lookups (fewer Maps calls)
  *   --self-test      run offline with mock data to validate CSV/dedup logic
  *
  * Environment egress required (won't run where these hosts are blocked):
  *   maps.googleapis.com   (discovery + phone)
  *   api.apollo.io         (owner + email; omit with --maps-only)
+ *   company websites      (scrape fallback; omit with --no-scrape)
  */
 
 import { writeFileSync } from "node:fs"
@@ -33,6 +41,12 @@ const opt = (name, fallback) => {
 const TARGET = parseInt(opt("--target", "5000"), 10)
 const OUT = opt("--out", "hvac-leads.csv")
 const MAPS_ONLY = flag("--maps-only")
+const COMPREHENSIVE = flag("--comprehensive")
+const NO_SCRAPE = flag("--no-scrape")
+const PATTERNS = flag("--patterns") || COMPREHENSIVE
+const NO_VERIFY = flag("--no-verify")
+const SMTP = flag("--smtp")
+const FROM = opt("--from", "verify@example.com")
 const WITH_PHONE = !flag("--no-phone")
 const SELF_TEST = flag("--self-test")
 
@@ -68,7 +82,9 @@ function leadsToCsv(leads) {
       lead.phone || "",
       lead.website || "",
       lead.address || "",
-      lead.emailSource ? `email via ${lead.emailSource}` : ""
+      [lead.emailSource ? `email via ${lead.emailSource}` : "", lead.verifyStatus]
+        .filter(Boolean)
+        .join(" · ")
     ]
   })
   return [HEADERS, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n"
@@ -77,9 +93,9 @@ function leadsToCsv(leads) {
 // ── Self-test (offline) ──────────────────────────────────────────────────────
 function runSelfTest() {
   const mockLeads = [
-    { company: "Cool Air HVAC", contactName: "Jane Doe", title: "Owner", email: "jane@coolairhvac.com", emailSource: "apollo_search", website: "https://coolairhvac.com", domain: "coolairhvac.com", address: "12 Main St, Austin, TX", phone: "+1 512-555-0101" },
-    { company: "Dup Co", contactName: "Jane Doe", title: "Owner", email: "jane@coolairhvac.com", emailSource: "apollo_search", website: "https://dup.com", domain: "dup.com", address: "", phone: "" },
-    { company: "Comfort \"Pros\", LLC", contactName: "Bob", title: "President", email: "bob@comfortpros.com", emailSource: "apollo_match", website: "https://comfortpros.com", domain: "comfortpros.com", address: "5 Elm, Denver, CO", phone: "+1 303-555-0123" }
+    { company: "Cool Air HVAC", contactName: "Jane Doe", title: "Owner", email: "jane@coolairhvac.com", emailSource: "apollo_search", verifyStatus: "valid-mx", website: "https://coolairhvac.com", domain: "coolairhvac.com", address: "12 Main St, Austin, TX", phone: "+1 512-555-0101" },
+    { company: "Dup Co", contactName: "Jane Doe", title: "Owner", email: "jane@coolairhvac.com", emailSource: "apollo_search", verifyStatus: "valid-mx", website: "https://dup.com", domain: "dup.com", address: "", phone: "" },
+    { company: "Comfort \"Pros\", LLC", contactName: "Bob", title: "President", email: "bob@comfortpros.com", emailSource: "website", verifyStatus: "smtp-ok", website: "https://comfortpros.com", domain: "comfortpros.com", address: "5 Elm, Denver, CO", phone: "+1 303-555-0123" }
   ]
   // Dedup by email (mirrors buildHvacLeads' seenEmail guard).
   const seen = new Set()
@@ -114,12 +130,24 @@ async function main() {
 
   const { buildHvacLeads } = await import("../src/hvacLeads.js")
 
-  console.log(`Building up to ${TARGET} HVAC leads (${MAPS_ONLY ? "Maps + pattern emails" : "Maps + Apollo"})…`)
+  const layers = [
+    "Maps",
+    MAPS_ONLY ? null : "Apollo",
+    NO_SCRAPE ? null : "scrape",
+    PATTERNS ? "patterns" : null,
+    NO_VERIFY ? null : (SMTP ? "verify(smtp)" : "verify(mx)")
+  ].filter(Boolean)
+  console.log(`Building up to ${TARGET} HVAC leads [${layers.join(" → ")}]…`)
   const started = Date.now()
 
   const leads = await buildHvacLeads({
     target: TARGET,
     useApollo: !MAPS_ONLY,
+    scrape: !NO_SCRAPE,
+    patterns: PATTERNS,
+    verify: !NO_VERIFY,
+    smtp: SMTP,
+    from: FROM,
     withPhone: WITH_PHONE,
     onProgress: (n) => {
       if (n % 25 === 0 || n === 1) {

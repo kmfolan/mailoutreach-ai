@@ -17,8 +17,16 @@
  * Dependencies: Node.js built-ins + global fetch. No npm deps.
  */
 
-import { extractDomain, normalizeUrl, isBlockedDomain, guessEmailPatterns } from "./discovery.js"
+import {
+  extractDomain,
+  normalizeUrl,
+  isBlockedDomain,
+  guessEmailPatterns,
+  scrapeSiteEmails,
+  pickBestEmail
+} from "./discovery.js"
 import { findOwnerContact } from "./apollo.js"
+import { verifyEmail } from "./emailVerify.js"
 
 export const DEFAULT_TERMS = ["HVAC contractor", "air conditioning repair", "heating and cooling"]
 
@@ -132,12 +140,23 @@ export async function fetchPlaceDetails(placeId) {
 // ---------------------------------------------------------------------------
 
 /**
- * Build HVAC leads.
+ * Build HVAC leads via the enrichment waterfall:
+ *   1. Google Maps discovery (company, website, phone, address)
+ *   2. Apollo enrichment by domain (owner name + email)      [useApollo]
+ *   3. Website-scrape fallback for a role email              [scrape]
+ *   4. Pattern email as last resort (info@domain)            [patterns]
+ *   5. MX / SMTP verification; drop undeliverable            [verify / smtp]
+ *
  * @param {object} opts
- * @param {string[]} [opts.terms]   search terms
- * @param {string[]} [opts.cities]  metros to search
- * @param {number}   [opts.target]  stop after this many kept leads
+ * @param {string[]} [opts.terms]     search terms
+ * @param {string[]} [opts.cities]    metros to search
+ * @param {number}   [opts.target]    stop after this many kept leads
  * @param {boolean}  [opts.useApollo] enrich owner name+email via Apollo
+ * @param {boolean}  [opts.scrape]    fall back to scraping the company site
+ * @param {boolean}  [opts.patterns]  last-resort role email (info@domain)
+ * @param {boolean}  [opts.verify]    MX-verify emails, drop undeliverable
+ * @param {boolean}  [opts.smtp]      also SMTP-probe mailboxes (slow, opt-in)
+ * @param {string}   [opts.from]      MAIL FROM identity for SMTP probing
  * @param {boolean}  [opts.withPhone] fetch phone via Place Details (extra calls)
  * @param {(n:number, lead:object)=>void} [opts.onProgress]
  * @returns {Promise<object[]>} lead records
@@ -148,6 +167,11 @@ export async function buildHvacLeads(opts = {}) {
     cities = DEFAULT_CITIES,
     target = 5000,
     useApollo = true,
+    scrape = true,
+    patterns = false,
+    verify = true,
+    smtp = false,
+    from = "verify@example.com",
     withPhone = true,
     onProgress
   } = opts
@@ -190,12 +214,13 @@ export async function buildHvacLeads(opts = {}) {
           }
         }
 
-        // Owner name + real email via Apollo (keyed on domain).
+        // ── Enrichment waterfall ──────────────────────────────────────────
         let contactName = ""
         let title = ""
         let email = ""
         let emailSource = ""
 
+        // Layer 2: Apollo — owner name + real email (keyed on domain).
         if (useApollo) {
           const contact = await findOwnerContact(company.domain)
           if (contact) {
@@ -206,8 +231,18 @@ export async function buildHvacLeads(opts = {}) {
           }
         }
 
-        // Fallback: role-based pattern email when Apollo is off or found nothing.
-        if (!email && !useApollo) {
+        // Layer 3: scrape the company's own site for a published email.
+        if (!email && scrape) {
+          const scraped = await scrapeSiteEmails(company.websiteUrl)
+          const best = pickBestEmail(scraped, company.domain)
+          if (best) {
+            email = best
+            emailSource = "website"
+          }
+        }
+
+        // Layer 4: last-resort role-based pattern email (info@domain).
+        if (!email && patterns) {
           email = guessEmailPatterns(company.domain)[0] || ""
           emailSource = "pattern"
         }
@@ -216,6 +251,17 @@ export async function buildHvacLeads(opts = {}) {
         if (!email || seenEmail.has(email)) {
           continue
         }
+
+        // Layer 5: verify deliverability; drop dead domains / rejected mailboxes.
+        let verifyStatus = "unverified"
+        if (verify) {
+          const result = await verifyEmail(email, { smtp, from })
+          verifyStatus = result.status
+          if (!result.ok) {
+            continue
+          }
+        }
+
         seenEmail.add(email)
 
         const lead = {
@@ -224,6 +270,7 @@ export async function buildHvacLeads(opts = {}) {
           title,
           email,
           emailSource,
+          verifyStatus,
           website: company.websiteUrl,
           domain: company.domain,
           address,

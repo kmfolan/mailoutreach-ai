@@ -11,19 +11,28 @@ enrichment.
 > scraping was considered and rejected: it violates LinkedIn's ToS and is
 > fragile; Apollo exposes the same LinkedIn-sourced data legitimately via API.)
 
-## Pipeline
+## Pipeline (enrichment waterfall)
 
-```
-Google Maps Places  →  Apollo (by domain)  →  filter no-email + dedup  →  Google CSV
-   name, website,        owner name,             one row per company/email     import-ready
-   domain, address,      title, real email
-   phone
-```
+Each company flows through layers until it has a deliverable email; anything
+that reaches the end without one is dropped.
+
+| # | Layer | Source | Yields |
+|---|-------|--------|--------|
+| 1 | Discovery | Google Maps Places (paginated) | company, website, domain, address, phone |
+| 2 | Primary enrichment | Apollo (match by domain) | owner name + title + real email |
+| 3 | Fallback enrichment | scrape the company's own site | role email (`owner@`, `info@`) |
+| 4 | Last resort | pattern guess | `info@domain` (opt-in, `--patterns`) |
+| 5 | Verification | DNS MX (+ optional SMTP) | drop dead domains / rejected mailboxes |
+
+Then: drop no-email, dedup by domain + email → Google Contacts CSV.
 
 Code:
 - `server/src/hvacLeads.js` — orchestrator (`buildHvacLeads`), paginated Maps
-  search, Place Details phone lookup.
+  search, Place Details phone lookup, the waterfall.
 - `server/src/apollo.js` — Apollo People Search + Match (`findOwnerContact`).
+- `server/src/discovery.js` — website email scraping (`scrapeSiteEmails`,
+  `extractEmailsFromHtml`, `pickBestEmail`, `isJunkEmail`).
+- `server/src/emailVerify.js` — MX / SMTP verification (`verifyEmail`).
 - `server/scripts/build-hvac-list.mjs` — CLI + Google CSV writer + self-test.
 
 ## Requirements
@@ -38,26 +47,32 @@ Node 18+. No npm install (Node built-ins + global `fetch`).
 ## Run
 
 ```bash
-# Full pipeline (Maps + Apollo)
+# Default waterfall (Maps → Apollo → scrape → MX-verify)
 GOOGLE_MAPS_API_KEY=... APOLLO_API_KEY=... \
   node server/scripts/build-hvac-list.mjs --target 5000 --out hvac-leads.csv
 
-# Company skeleton only, no Apollo (role-based info@ emails)
+# Most comprehensive: also allow pattern emails, verify everything
+GOOGLE_MAPS_API_KEY=... APOLLO_API_KEY=... \
+  node server/scripts/build-hvac-list.mjs --comprehensive --target 5000
+
+# No Apollo — Maps + website scraping only (no Apollo key needed)
 GOOGLE_MAPS_API_KEY=... node server/scripts/build-hvac-list.mjs --maps-only
 
 # Validate CSV/dedup logic offline (no network, no keys)
 npm --prefix server run hvac-list:test
 ```
 
-Flags: `--target N`, `--out FILE`, `--maps-only`, `--no-phone`, `--self-test`.
+Flags: `--target N`, `--out FILE`, `--maps-only`, `--no-scrape`, `--patterns`,
+`--comprehensive`, `--no-verify`, `--smtp`, `--from ADDR`, `--no-phone`,
+`--self-test`.
 
 Import the resulting CSV at **contacts.google.com → Import**.
 
 ## Where it runs
 
-The script needs outbound network access to `maps.googleapis.com` and
-`api.apollo.io`. It runs anywhere that egress is open — your local machine or
-the production droplet.
+The script needs outbound network access to `maps.googleapis.com`,
+`api.apollo.io`, and the company websites it scrapes. It runs anywhere that
+egress is open — your local machine or the production droplet.
 
 > **Note on Claude Code web sessions.** The managed cloud environment uses an
 > allowlist egress policy. `maps.googleapis.com` is reachable, but
