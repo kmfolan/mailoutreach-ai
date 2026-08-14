@@ -10,10 +10,12 @@ worked out by hand.
 
 | File | What it is |
 |---|---|
-| `Dock_B_Grade_Transitions.pdf` | 8-page reference: conversion method, abbreviation key, summary by point type, all 163 points by number, Shoring points sorted deepest-first, and the source drawing |
+| `Dock_B_Grade_Transitions_1-8.pdf` | 2 pages — the original drawing, then a one-page legend converting all 163 points to the nearest **1/8 in.** |
+| `Dock_B_Grade_Transitions.pdf` | 8-page long form: conversion method, abbreviation key, summary by point type, all 163 points by number, Shoring points sorted deepest-first, and the source drawing (rounded to the nearest 1/4 in.) |
 | `Dock_B_Grade_Transitions.csv` | Same data as a flat table for spreadsheet use |
 | `points.py` | The transcribed point list — `(point_id, elevation_ft, description, note)` |
-| `mkpdf.py` | Builds the PDF from `points.py` |
+| `mksimple.py` | Builds the 2-page drawing + 1/8 in. legend PDF |
+| `mkpdf.py` | Builds the 8-page PDF |
 
 ## Method
 
@@ -43,7 +45,10 @@ than an unannotated one. Doing that properly needs the DWG or the surveyor's poi
 
 ## Regenerating
 
+Both scripts expect `content300.png` — a 300 dpi render of the survey sheet — alongside them.
+
 ```bash
 pip install reportlab pymupdf pillow
-python mkpdf.py    # expects content300.png (300 dpi render of the survey sheet) alongside
+python mksimple.py   # 2-page drawing + 1/8 in. legend
+python mkpdf.py      # 8-page long form
 ```
